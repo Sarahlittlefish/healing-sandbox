@@ -337,7 +337,7 @@
     <div class="modal interactive" id="breathingModal">
         <button class="close-btn" id="closeBreathBtn">&times;</button>
         <h2>4-7-8 正念呼吸</h2>
-        <p>跟随后图律动，伴随长音包络与微光深呼吸。</p>
+        <p>跟随后图律动，伴随潮汐海浪与微光深呼吸。</p>
         <div class="breathing-container">
             <div class="breathing-circle"></div>
             <div class="breathing-text" id="breathStateText">吸气...</div>
@@ -418,7 +418,7 @@
                 osc.type = 'sine';
                 osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
                 gain.gain.setValueAtTime(0, audioCtx.currentTime);
-                gain.gain.linearRampToValueAtTime(0.05, audioCtx.currentTime + 0.08);
+                gain.gain.linearRampToValueAtTime(0.04, audioCtx.currentTime + 0.08);
                 gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
                 osc.connect(gain);
                 gain.connect(audioCtx.destination);
@@ -431,11 +431,14 @@
             playHarmonicTone(notes[Math.floor(Math.random() * notes.length)]);
         }
 
-        // 呼吸长音合成器类 (Continuous Breathing Ambient Pad Engine)
-        class BreathingDroneEngine {
+        // 🌊 纯算法轻盈海浪声学合成器 (Ocean Wave Sound Generator)
+        class OceanWaveEngine {
             constructor() {
-                this.oscillators = [];
-                this.masterGain = null;
+                this.noiseNode = null;
+                this.filterNode = null;
+                this.gainNode = null;
+                this.highPadGain = null;
+                this.highPadOscs = [];
                 this.isActive = false;
             }
 
@@ -444,19 +447,42 @@
                 if (this.isActive) return;
 
                 try {
-                    this.masterGain = audioCtx.createGain();
-                    this.masterGain.gain.setValueAtTime(0, audioCtx.currentTime);
-                    this.masterGain.connect(audioCtx.destination);
+                    const bufferSize = audioCtx.sampleRate * 4;
+                    const noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+                    const output = noiseBuffer.getChannelData(0);
+                    for (let i = 0; i < bufferSize; i++) {
+                        output[i] = Math.random() * 2 - 1;
+                    }
 
-                    const chordFreqs = [110, 164.81, 220, 277.18];
-                    this.oscillators = chordFreqs.map(freq => {
+                    this.noiseNode = audioCtx.createBufferSource();
+                    this.noiseNode.buffer = noiseBuffer;
+                    this.noiseNode.loop = true;
+
+                    this.filterNode = audioCtx.createBiquadFilter();
+                    this.filterNode.type = 'lowpass';
+                    this.filterNode.frequency.setValueAtTime(250, audioCtx.currentTime);
+
+                    this.gainNode = audioCtx.createGain();
+                    this.gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+
+                    this.noiseNode.connect(this.filterNode);
+                    this.filterNode.connect(this.gainNode);
+                    this.gainNode.connect(audioCtx.destination);
+                    this.noiseNode.start();
+
+                    this.highPadGain = audioCtx.createGain();
+                    this.highPadGain.gain.setValueAtTime(0, audioCtx.currentTime);
+                    this.highPadGain.connect(audioCtx.destination);
+
+                    const highFreqs = [659.25, 987.77, 1318.51];
+                    this.highPadOscs = highFreqs.map(freq => {
                         const osc = audioCtx.createOscillator();
-                        const oscGain = audioCtx.createGain();
                         osc.type = 'sine';
                         osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-                        oscGain.gain.setValueAtTime(0.25, audioCtx.currentTime);
-                        osc.connect(oscGain);
-                        oscGain.connect(this.masterGain);
+                        const g = audioCtx.createGain();
+                        g.gain.setValueAtTime(0.08, audioCtx.currentTime);
+                        osc.connect(g);
+                        g.connect(this.highPadGain);
                         osc.start();
                         return osc;
                     });
@@ -466,18 +492,34 @@
             }
 
             setRhythmPhase(phase) {
-                if (!this.isActive || !this.masterGain) return;
+                if (!this.isActive || !this.gainNode || !this.filterNode) return;
                 const now = audioCtx.currentTime;
 
                 if (phase === 'inhale') {
-                    this.masterGain.gain.cancelScheduledValues(now);
-                    this.masterGain.gain.linearRampToValueAtTime(0.12, now + 4.5);
+                    this.filterNode.frequency.cancelScheduledValues(now);
+                    this.filterNode.frequency.linearRampToValueAtTime(850, now + 4.5);
+
+                    this.gainNode.gain.cancelScheduledValues(now);
+                    this.gainNode.gain.linearRampToValueAtTime(0.12, now + 4.5);
+
+                    if (this.highPadGain) {
+                        this.highPadGain.gain.cancelScheduledValues(now);
+                        this.highPadGain.gain.linearRampToValueAtTime(0.025, now + 4.5);
+                    }
                 } else if (phase === 'hold') {
-                    this.masterGain.gain.cancelScheduledValues(now);
-                    this.masterGain.gain.setValueAtTime(0.12, now);
+                    this.filterNode.frequency.setValueAtTime(850, now);
+                    this.gainNode.gain.setValueAtTime(0.12, now);
                 } else if (phase === 'exhale') {
-                    this.masterGain.gain.cancelScheduledValues(now);
-                    this.masterGain.gain.linearRampToValueAtTime(0.02, now + 5.5);
+                    this.filterNode.frequency.cancelScheduledValues(now);
+                    this.filterNode.frequency.linearRampToValueAtTime(220, now + 5.5);
+
+                    this.gainNode.gain.cancelScheduledValues(now);
+                    this.gainNode.gain.linearRampToValueAtTime(0.015, now + 5.5);
+
+                    if (this.highPadGain) {
+                        this.highPadGain.gain.cancelScheduledValues(now);
+                        this.highPadGain.gain.linearRampToValueAtTime(0.005, now + 5.5);
+                    }
                 }
             }
 
@@ -485,13 +527,18 @@
                 if (!this.isActive) return;
                 try {
                     const now = audioCtx.currentTime;
-                    if (this.masterGain) {
-                        this.masterGain.gain.cancelScheduledValues(now);
-                        this.masterGain.gain.linearRampToValueAtTime(0, now + 1.2);
+                    if (this.gainNode) {
+                        this.gainNode.gain.cancelScheduledValues(now);
+                        this.gainNode.gain.linearRampToValueAtTime(0, now + 1.2);
+                    }
+                    if (this.highPadGain) {
+                        this.highPadGain.gain.cancelScheduledValues(now);
+                        this.highPadGain.gain.linearRampToValueAtTime(0, now + 1.2);
                     }
                     setTimeout(() => {
-                        this.oscillators.forEach(osc => { try { osc.stop(); } catch(e){} });
-                        this.oscillators = [];
+                        if (this.noiseNode) { try { this.noiseNode.stop(); } catch(e){} }
+                        this.highPadOscs.forEach(osc => { try { osc.stop(); } catch(e){} });
+                        this.highPadOscs = [];
                         this.isActive = false;
                     }, 1200);
                 } catch (e) {
@@ -500,7 +547,7 @@
             }
         }
 
-        const breathDrone = new BreathingDroneEngine();
+        const waveEngine = new OceanWaveEngine();
 
         class Particle {
             constructor(x, y, color, pressure = 0.5, type = 'stardust') {
@@ -715,9 +762,9 @@
             document.getElementById('soundIcon').textContent = isSoundEnabled ? '🔊' : '🔇';
             if (isSoundEnabled) {
                 playRandomNote();
-                if (breathModal.classList.contains('active')) breathDrone.start();
+                if (breathModal.classList.contains('active')) waveEngine.start();
             } else {
-                breathDrone.stop();
+                waveEngine.stop();
             }
         });
 
@@ -748,7 +795,7 @@
         document.getElementById('breathModalBtn').addEventListener('click', () => {
             breathModal.classList.add('active');
             initAudio();
-            if (isSoundEnabled) breathDrone.start();
+            if (isSoundEnabled) waveEngine.start();
 
             if (!breathInterval) {
                 breathInterval = setInterval(() => {
@@ -763,7 +810,7 @@
                         }
                         ripples.push(new Ripple(cx, cy, activeColors[0], 0.85));
 
-                        if (Math.random() < 0.3) playRandomNote();
+                        if (Math.random() < 0.25) playRandomNote();
                     }
                 }, 1000);
             }
@@ -771,7 +818,7 @@
 
         document.getElementById('closeBreathBtn').addEventListener('click', () => {
             breathModal.classList.remove('active');
-            breathDrone.stop();
+            waveEngine.stop();
             if (breathInterval) {
                 clearInterval(breathInterval);
                 breathInterval = null;
@@ -796,7 +843,7 @@
 
                 if (currentPhase !== lastPhase) {
                     lastPhase = currentPhase;
-                    breathDrone.setRhythmPhase(currentPhase);
+                    waveEngine.setRhythmPhase(currentPhase);
                 }
             }
         }, 300);
