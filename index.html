@@ -3,7 +3,6 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <!-- iPad PWA Web App 全屏支持 -->
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="心灵栖息地">
@@ -24,7 +23,7 @@
             padding: 0;
             user-select: none;
             -webkit-user-select: none;
-            touch-action: none; /* 禁用 iPad 默认下拉与缩放 */
+            touch-action: none;
         }
 
         body, html {
@@ -127,7 +126,6 @@
             background: rgba(255, 255, 255, 0.25);
         }
 
-        /* 底部工具栏 */
         .bottom-dock {
             align-self: center;
             background: var(--glass-bg);
@@ -175,17 +173,50 @@
             box-shadow: 0 0 18px rgba(167, 139, 250, 0.5);
         }
 
-        /* 弹窗部分 */
+        /* 恢复 UI 悬浮按钮 */
+        .restore-ui-pill {
+            position: absolute;
+            top: calc(env(safe-area-inset-top) + 20px);
+            right: 24px;
+            z-index: 99;
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: #fff;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+            opacity: 0;
+            pointer-events: none;
+            transition: all 0.4s ease;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+
+        .restore-ui-pill.visible {
+            opacity: 0.85;
+            pointer-events: auto;
+        }
+
+        .restore-ui-pill:active {
+            transform: scale(0.95);
+            opacity: 1;
+        }
+
         .modal {
             position: absolute;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%) scale(0.95);
-            background: rgba(20, 21, 38, 0.9);
+            background: rgba(20, 21, 38, 0.92);
             backdrop-filter: blur(28px);
             -webkit-backdrop-filter: blur(28px);
             border: 1px solid var(--glass-border);
-            padding: 32px;
+            padding: 30px;
             border-radius: 28px;
             width: 85%;
             max-width: 420px;
@@ -270,6 +301,11 @@
 
     <canvas id="sandboxCanvas"></canvas>
 
+    <!-- 沉浸模式下的恢复按钮 -->
+    <div class="restore-ui-pill" id="restoreUiPill">
+        <span>👁️</span> 显示界面
+    </div>
+
     <div class="ui-layer" id="uiLayer">
         <header class="interactive">
             <div class="brand">
@@ -300,22 +336,22 @@
         </div>
     </div>
 
-    <!-- 呼吸模态框 -->
+    <!-- 正念呼吸弹窗 -->
     <div class="modal interactive" id="breathingModal">
         <button class="close-btn" id="closeBreathBtn">&times;</button>
         <h2>4-7-8 正念呼吸</h2>
-        <p>跟随后图的律动与引导，深呼吸。</p>
+        <p>跟随后图律动，伴随光晕散发深呼吸。</p>
         <div class="breathing-container">
             <div class="breathing-circle"></div>
             <div class="breathing-text" id="breathStateText">吸气...</div>
         </div>
     </div>
 
-    <!-- 烦恼解压模态框 -->
+    <!-- 烦恼消解弹窗 -->
     <div class="modal interactive" id="worryModal">
         <button class="close-btn" id="closeWorryBtn">&times;</button>
         <h2>烦恼消解纸条</h2>
-        <p>写下此时此刻的焦虑，点击释放，让它化作星光散去。</p>
+        <p>写下此时此刻的焦虑，点击释放，让它化作鼓励与星光散去。</p>
         <textarea class="worry-input" id="worryText" placeholder="写下困扰你的事情..."></textarea>
         <button class="btn" id="releaseWorryBtn" style="width: 100%; justify-content: center; background: rgba(167, 139, 250, 0.35);">
             ✨ 化作星光释放
@@ -334,13 +370,11 @@
         window.addEventListener('resize', resize);
         resize();
 
-        // 保持 iPad 屏幕常亮 API (Screen Wake Lock)
+        // 屏幕常亮支持
         let wakeLock = null;
         async function requestWakeLock() {
             try {
-                if ('wakeLock' in navigator) {
-                    wakeLock = await navigator.wakeLock.request('screen');
-                }
+                if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen');
             } catch (err) {}
         }
 
@@ -356,8 +390,18 @@
         let particles = [];
         let ripples = [];
         let lanterns = [];
+        let floatingMessages = [];
 
-        // Web Audio 音频合成器
+        const praiseQuotes = [
+            "允许自己休息一下，你已经做得非常棒啦 ✨",
+            "所有的烦恼，都会像星光一样慢慢散去 🌸",
+            "别担心，一切都在按照最好的节奏发生 🌙",
+            "抱抱你，今天的你也辛苦了 ☀️",
+            "你比自己想象的要坚强且温柔得多 💫",
+            "把不开心留给风，明天又是美好的一天 🍃",
+            "给自己一点时间，允许花朵慢慢盛开 🌸"
+        ];
+
         let audioCtx = null;
         let isSoundEnabled = false;
 
@@ -412,25 +456,27 @@
                     this.angularVelocity = (Math.random() - 0.5) * 0.02;
                     this.decay = Math.random() * 0.003 + 0.002;
                     this.size = (Math.random() * 6 + 4) * (pressure + 0.5);
+                } else if (type === 'breath_pulse') {
+                    const angle = Math.random() * Math.PI * 2;
+                    const speed = Math.random() * 2.5 + 1.2;
+                    this.vx = Math.cos(angle) * speed;
+                    this.vy = Math.sin(angle) * speed;
+                    this.decay = Math.random() * 0.006 + 0.003;
+                    this.size = Math.random() * 3.5 + 2;
                 }
             }
 
             update() {
-                if (this.type === 'stardust') {
-                    this.x += this.vx;
-                    this.y += this.vy;
-                } else if (this.type === 'sakura') {
-                    this.x += this.vx + Math.sin(this.y * 0.02) * 0.5;
-                    this.y += this.vy;
-                    this.angle += this.angularVelocity;
-                }
+                this.x += this.vx;
+                this.y += this.vy;
+                if (this.type === 'sakura') this.angle += this.angularVelocity;
                 this.life -= this.decay;
             }
 
             draw() {
                 ctx.save();
                 ctx.globalAlpha = Math.max(0, this.life);
-                if (this.type === 'stardust') {
+                if (this.type === 'stardust' || this.type === 'breath_pulse') {
                     ctx.beginPath();
                     ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
                     ctx.fillStyle = this.color;
@@ -513,6 +559,34 @@
             }
         }
 
+        class FloatingPraise {
+            constructor(text, x, y) {
+                this.text = text;
+                this.x = x;
+                this.y = y;
+                this.vy = -0.6;
+                this.life = 1.0;
+                this.decay = 0.005;
+            }
+
+            update() {
+                this.y += this.vy;
+                this.life -= this.decay;
+            }
+
+            draw() {
+                ctx.save();
+                ctx.globalAlpha = Math.max(0, this.life);
+                ctx.font = "500 1.15rem -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif";
+                ctx.textAlign = "center";
+                ctx.fillStyle = "#fde047";
+                ctx.shadowBlur = 16;
+                ctx.shadowColor = "rgba(253, 224, 71, 0.8)";
+                ctx.fillText(this.text, this.x, this.y);
+                ctx.restore();
+            }
+        }
+
         function spawnEffect(x, y, pressure = 0.5) {
             const activeColors = themes[currentThemeIndex].colors;
             const color = activeColors[Math.floor(Math.random() * activeColors.length)];
@@ -530,22 +604,25 @@
             }
         }
 
-        // 支持 iPad Apple Pencil & 多点触控 (Pointer Events API)
         window.addEventListener('pointerdown', (e) => {
-            if (e.target.closest('.interactive')) return;
+            if (e.target.closest('.interactive') || e.target.closest('#restoreUiPill')) return;
+            if (isFocusMode) {
+                restoreUi();
+                return;
+            }
             initAudio();
             requestWakeLock();
             spawnEffect(e.clientX, e.clientY, e.pressure || 0.5);
         });
 
         window.addEventListener('pointermove', (e) => {
+            if (isFocusMode) return;
             if (e.buttons !== 1 && e.pointerType !== 'touch') return;
             if (e.target.closest('.interactive')) return;
             spawnEffect(e.clientX, e.clientY, e.pressure || 0.5);
             if (Math.random() < 0.15) playRandomNote();
         });
 
-        // 按钮交互绑定
         document.querySelectorAll('.tool-btn[data-tool]').forEach(btn => {
             btn.addEventListener('click', () => {
                 document.querySelectorAll('.tool-btn[data-tool]').forEach(b => b.classList.remove('active'));
@@ -555,7 +632,7 @@
         });
 
         document.getElementById('clearBtn').addEventListener('click', () => {
-            particles = []; ripples = []; lanterns = [];
+            particles = []; ripples = []; lanterns = []; floatingMessages = [];
         });
 
         document.getElementById('themeBtn').addEventListener('click', () => {
@@ -574,24 +651,56 @@
         });
 
         const uiLayer = document.getElementById('uiLayer');
+        const restorePill = document.getElementById('restoreUiPill');
         let isFocusMode = false;
-        document.getElementById('focusModeBtn').addEventListener('click', () => {
+
+        function hideUi() {
             isFocusMode = true;
             uiLayer.classList.add('hidden');
-        });
+            restorePill.classList.add('visible');
+        }
 
-        window.addEventListener('click', (e) => {
-            if (isFocusMode && !e.target.closest('.interactive')) {
-                isFocusMode = false;
-                uiLayer.classList.remove('hidden');
+        function restoreUi() {
+            isFocusMode = false;
+            uiLayer.classList.remove('hidden');
+            restorePill.classList.remove('visible');
+        }
+
+        document.getElementById('focusModeBtn').addEventListener('click', hideUi);
+        restorePill.addEventListener('click', restoreUi);
+
+        const breathModal = document.getElementById('breathingModal');
+        const breathText = document.getElementById('breathStateText');
+        let breathInterval = null;
+
+        document.getElementById('breathModalBtn').addEventListener('click', () => {
+            breathModal.classList.add('active');
+            
+            if (!breathInterval) {
+                breathInterval = setInterval(() => {
+                    if (breathModal.classList.contains('active')) {
+                        const cx = width / 2;
+                        const cy = height / 2;
+                        const activeColors = themes[currentThemeIndex].colors;
+                        
+                        for (let i = 0; i < 18; i++) {
+                            const color = activeColors[i % activeColors.length];
+                            particles.push(new Particle(cx, cy, color, 0.8, 'breath_pulse'));
+                        }
+                        ripples.push(new Ripple(cx, cy, activeColors[0], 0.9));
+                        playRandomNote();
+                    }
+                }, 900);
             }
         });
 
-        // 正念与解压弹窗
-        const breathModal = document.getElementById('breathingModal');
-        const breathText = document.getElementById('breathStateText');
-        document.getElementById('breathModalBtn').addEventListener('click', () => breathModal.classList.add('active'));
-        document.getElementById('closeBreathBtn').addEventListener('click', () => breathModal.classList.remove('active'));
+        document.getElementById('closeBreathBtn').addEventListener('click', () => {
+            breathModal.classList.remove('active');
+            if (breathInterval) {
+                clearInterval(breathInterval);
+                breathInterval = null;
+            }
+        });
 
         setInterval(() => {
             if (breathModal.classList.contains('active')) {
@@ -611,11 +720,16 @@
             if (input.value.trim() !== '') {
                 const cx = width / 2;
                 const cy = height / 2;
-                for (let i = 0; i < 60; i++) {
-                    const p = new Particle(cx + (Math.random()-0.5)*120, cy + (Math.random()-0.5)*120, '#fde047', 0.8, 'stardust');
-                    p.vx *= 3; p.vy *= 3;
+
+                const randomPraise = praiseQuotes[Math.floor(Math.random() * praiseQuotes.length)];
+                floatingMessages.push(new FloatingPraise(randomPraise, cx, cy - 40));
+
+                for (let i = 0; i < 70; i++) {
+                    const p = new Particle(cx + (Math.random()-0.5)*140, cy + (Math.random()-0.5)*140, '#fde047', 0.8, 'stardust');
+                    p.vx *= 3.5; p.vy *= 3.5;
                     particles.push(p);
                 }
+
                 playRandomNote();
                 input.value = '';
                 worryModal.classList.remove('active');
@@ -641,6 +755,12 @@
                 lanterns[i].update();
                 lanterns[i].draw();
                 if (lanterns[i].opacity <= 0) lanterns.splice(i, 1);
+            }
+
+            for (let i = floatingMessages.length - 1; i >= 0; i--) {
+                floatingMessages[i].update();
+                floatingMessages[i].draw();
+                if (floatingMessages[i].life <= 0) floatingMessages.splice(i, 1);
             }
 
             requestAnimationFrame(render);
