@@ -173,7 +173,6 @@
             box-shadow: 0 0 18px rgba(167, 139, 250, 0.5);
         }
 
-        /* 恢复 UI 悬浮按钮 */
         .restore-ui-pill {
             position: absolute;
             top: calc(env(safe-area-inset-top) + 20px);
@@ -301,7 +300,6 @@
 
     <canvas id="sandboxCanvas"></canvas>
 
-    <!-- 沉浸模式下的恢复按钮 -->
     <div class="restore-ui-pill" id="restoreUiPill">
         <span>👁️</span> 显示界面
     </div>
@@ -336,18 +334,16 @@
         </div>
     </div>
 
-    <!-- 正念呼吸弹窗 -->
     <div class="modal interactive" id="breathingModal">
         <button class="close-btn" id="closeBreathBtn">&times;</button>
         <h2>4-7-8 正念呼吸</h2>
-        <p>跟随后图律动，伴随光晕散发深呼吸。</p>
+        <p>跟随后图律动，伴随长音包络与微光深呼吸。</p>
         <div class="breathing-container">
             <div class="breathing-circle"></div>
             <div class="breathing-text" id="breathStateText">吸气...</div>
         </div>
     </div>
 
-    <!-- 烦恼消解弹窗 -->
     <div class="modal interactive" id="worryModal">
         <button class="close-btn" id="closeWorryBtn">&times;</button>
         <h2>烦恼消解纸条</h2>
@@ -370,7 +366,6 @@
         window.addEventListener('resize', resize);
         resize();
 
-        // 屏幕常亮支持
         let wakeLock = null;
         async function requestWakeLock() {
             try {
@@ -423,7 +418,7 @@
                 osc.type = 'sine';
                 osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
                 gain.gain.setValueAtTime(0, audioCtx.currentTime);
-                gain.gain.linearRampToValueAtTime(0.08, audioCtx.currentTime + 0.08);
+                gain.gain.linearRampToValueAtTime(0.05, audioCtx.currentTime + 0.08);
                 gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
                 osc.connect(gain);
                 gain.connect(audioCtx.destination);
@@ -435,6 +430,77 @@
         function playRandomNote() {
             playHarmonicTone(notes[Math.floor(Math.random() * notes.length)]);
         }
+
+        // 呼吸长音合成器类 (Continuous Breathing Ambient Pad Engine)
+        class BreathingDroneEngine {
+            constructor() {
+                this.oscillators = [];
+                this.masterGain = null;
+                this.isActive = false;
+            }
+
+            start() {
+                if (!isSoundEnabled || !audioCtx) return;
+                if (this.isActive) return;
+
+                try {
+                    this.masterGain = audioCtx.createGain();
+                    this.masterGain.gain.setValueAtTime(0, audioCtx.currentTime);
+                    this.masterGain.connect(audioCtx.destination);
+
+                    const chordFreqs = [110, 164.81, 220, 277.18];
+                    this.oscillators = chordFreqs.map(freq => {
+                        const osc = audioCtx.createOscillator();
+                        const oscGain = audioCtx.createGain();
+                        osc.type = 'sine';
+                        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+                        oscGain.gain.setValueAtTime(0.25, audioCtx.currentTime);
+                        osc.connect(oscGain);
+                        oscGain.connect(this.masterGain);
+                        osc.start();
+                        return osc;
+                    });
+
+                    this.isActive = true;
+                } catch (e) {}
+            }
+
+            setRhythmPhase(phase) {
+                if (!this.isActive || !this.masterGain) return;
+                const now = audioCtx.currentTime;
+
+                if (phase === 'inhale') {
+                    this.masterGain.gain.cancelScheduledValues(now);
+                    this.masterGain.gain.linearRampToValueAtTime(0.12, now + 4.5);
+                } else if (phase === 'hold') {
+                    this.masterGain.gain.cancelScheduledValues(now);
+                    this.masterGain.gain.setValueAtTime(0.12, now);
+                } else if (phase === 'exhale') {
+                    this.masterGain.gain.cancelScheduledValues(now);
+                    this.masterGain.gain.linearRampToValueAtTime(0.02, now + 5.5);
+                }
+            }
+
+            stop() {
+                if (!this.isActive) return;
+                try {
+                    const now = audioCtx.currentTime;
+                    if (this.masterGain) {
+                        this.masterGain.gain.cancelScheduledValues(now);
+                        this.masterGain.gain.linearRampToValueAtTime(0, now + 1.2);
+                    }
+                    setTimeout(() => {
+                        this.oscillators.forEach(osc => { try { osc.stop(); } catch(e){} });
+                        this.oscillators = [];
+                        this.isActive = false;
+                    }, 1200);
+                } catch (e) {
+                    this.isActive = false;
+                }
+            }
+        }
+
+        const breathDrone = new BreathingDroneEngine();
 
         class Particle {
             constructor(x, y, color, pressure = 0.5, type = 'stardust') {
@@ -458,10 +524,10 @@
                     this.size = (Math.random() * 6 + 4) * (pressure + 0.5);
                 } else if (type === 'breath_pulse') {
                     const angle = Math.random() * Math.PI * 2;
-                    const speed = Math.random() * 2.5 + 1.2;
+                    const speed = Math.random() * 2.2 + 1.0;
                     this.vx = Math.cos(angle) * speed;
                     this.vy = Math.sin(angle) * speed;
-                    this.decay = Math.random() * 0.006 + 0.003;
+                    this.decay = Math.random() * 0.005 + 0.0025;
                     this.size = Math.random() * 3.5 + 2;
                 }
             }
@@ -647,7 +713,12 @@
             initAudio();
             isSoundEnabled = !isSoundEnabled;
             document.getElementById('soundIcon').textContent = isSoundEnabled ? '🔊' : '🔇';
-            if (isSoundEnabled) playRandomNote();
+            if (isSoundEnabled) {
+                playRandomNote();
+                if (breathModal.classList.contains('active')) breathDrone.start();
+            } else {
+                breathDrone.stop();
+            }
         });
 
         const uiLayer = document.getElementById('uiLayer');
@@ -672,30 +743,35 @@
         const breathModal = document.getElementById('breathingModal');
         const breathText = document.getElementById('breathStateText');
         let breathInterval = null;
+        let lastPhase = '';
 
         document.getElementById('breathModalBtn').addEventListener('click', () => {
             breathModal.classList.add('active');
-            
+            initAudio();
+            if (isSoundEnabled) breathDrone.start();
+
             if (!breathInterval) {
                 breathInterval = setInterval(() => {
                     if (breathModal.classList.contains('active')) {
                         const cx = width / 2;
                         const cy = height / 2;
                         const activeColors = themes[currentThemeIndex].colors;
-                        
-                        for (let i = 0; i < 18; i++) {
+
+                        for (let i = 0; i < 16; i++) {
                             const color = activeColors[i % activeColors.length];
                             particles.push(new Particle(cx, cy, color, 0.8, 'breath_pulse'));
                         }
-                        ripples.push(new Ripple(cx, cy, activeColors[0], 0.9));
-                        playRandomNote();
+                        ripples.push(new Ripple(cx, cy, activeColors[0], 0.85));
+
+                        if (Math.random() < 0.3) playRandomNote();
                     }
-                }, 900);
+                }, 1000);
             }
         });
 
         document.getElementById('closeBreathBtn').addEventListener('click', () => {
             breathModal.classList.remove('active');
+            breathDrone.stop();
             if (breathInterval) {
                 clearInterval(breathInterval);
                 breathInterval = null;
@@ -705,11 +781,25 @@
         setInterval(() => {
             if (breathModal.classList.contains('active')) {
                 const cycleTime = (Date.now() % 12000) / 1000;
-                if (cycleTime < 4.8) breathText.textContent = "吸气 Inhale...";
-                else if (cycleTime < 6.0) breathText.textContent = "保持 Hold...";
-                else breathText.textContent = "呼气 Exhale...";
+                let currentPhase = '';
+
+                if (cycleTime < 4.8) {
+                    breathText.textContent = "吸气 Inhale...";
+                    currentPhase = 'inhale';
+                } else if (cycleTime < 6.0) {
+                    breathText.textContent = "保持 Hold...";
+                    currentPhase = 'hold';
+                } else {
+                    breathText.textContent = "呼气 Exhale...";
+                    currentPhase = 'exhale';
+                }
+
+                if (currentPhase !== lastPhase) {
+                    lastPhase = currentPhase;
+                    breathDrone.setRhythmPhase(currentPhase);
+                }
             }
-        }, 500);
+        }, 300);
 
         const worryModal = document.getElementById('worryModal');
         document.getElementById('worryModalBtn').addEventListener('click', () => worryModal.classList.add('active'));
